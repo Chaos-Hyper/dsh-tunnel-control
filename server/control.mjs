@@ -276,10 +276,14 @@ function stopTunnel() {
 // ── 控制 API（只给本机页面用）──────────────────────────────────────────
 const LOOPBACK = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/i;
 const TUNNEL_ORIGIN = /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/i;
+// 桌面宿主的文档 origin 是 dsh-app://app（自有 scheme，注册时带了 standard +
+// secure + corsEnabled）。Origin 由浏览器填写、网页伪造不了，放行它不会给外部
+// 网页开口子；不放行则桌面端连 /api/state 都读不到。
+const DESKTOP_ORIGIN = /^dsh-app:\/\/[a-z0-9.-]+$/i;
 
 function originAllowed(origin) {
   if (!origin) return false;
-  return LOOPBACK.test(origin) || TUNNEL_ORIGIN.test(origin);
+  return LOOPBACK.test(origin) || TUNNEL_ORIGIN.test(origin) || DESKTOP_ORIGIN.test(origin);
 }
 
 function cors(res, origin) {
@@ -347,10 +351,16 @@ log(dshSecret ? '已读到 dsh cookie 签名密钥，外部访问会代签认证
 if (!state.message) state.message = '就绪 · 尚未开启';
 persist();
 
-await new Promise((resolve, reject) => {
-  control.once('error', reject);
-  control.listen(CFG.ctlPort, CFG.host, resolve);
-});
+try {
+  await new Promise((resolve, reject) => {
+    control.once('error', reject);
+    control.listen(CFG.ctlPort, CFG.host, resolve);
+  });
+} catch (err) {
+  // 登录自启时最常见的情况：前一个实例还没退干净，端口被占。
+  log(`控制服务启动失败：${err.message}（端口 ${CFG.ctlPort} 可能已被另一个实例占用）`);
+  process.exit(1);
+}
 log(`控制服务就绪：http://${CFG.host}:${CFG.ctlPort}/api/state`);
 writeFileSync(PID_FILE, String(process.pid), 'utf8');
 
