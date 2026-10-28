@@ -149,6 +149,7 @@ dsh-tunnel cloudflared   # 打印 cloudflared 的下载方式
 | 密码过了但界面是 dsh 的 401 | 没读到 `.credentials.yaml` 的签名密钥，看 `tunnel.log` 里有没有「未读到 dsh cookie 签名密钥」。dsh 版本不同则字段位置可能变 |
 | 公网能开首页，但对话不刷新 | WebSocket 被掐了。查 `tunnel.log`、确认走的是同一个密码门端口 |
 | 隧道域名下卡片按钮是灰的 | 设计如此：https 页面不允许回连 `http://127.0.0.1`。要开关请回本机操作 |
+| 刚开启时打开链接报「找不到服务器」或 `ENOTFOUND` | `trycloudflare` 的新域名要几秒到几十秒才传播完 DNS。等 20–30 秒再刷新；本机能 `Resolve-DnsName <域名>` 解析出地址了再试 |
 | 白屏 | 首屏经隧道要十秒量级，先等；仍白屏就对照 `http://127.0.0.1:3080`，两边一样说明是前端自己的问题，与隧道无关 |
 | 每次开启链接都变 | `trycloudflare` 免费隧道就是这样。要固定域名得换 Cloudflare named tunnel |
 | `tunnel.log` 里 cloudflared 报 QUIC 失败 | 默认已用 `--protocol http2`；还是失败就查本机出网 |
