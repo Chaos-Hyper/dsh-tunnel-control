@@ -1,0 +1,4 @@
+# 默认按 LF 存、按 LF 检出；Windows 批处理单独保持 CRLF。
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf

@@ -1,0 +1,47 @@
+{
+  "name": "@local/dsh-tunnel-control",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "dsh web 设置面板里的远程访问开关：一键把本机 dsh 经 Cloudflare 隧道暴露成带密码的公网链接",
+  "license": "MIT",
+  "author": "Chaos-Hyper",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Chaos-Hyper/dsh-tunnel-control.git"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cloudflare-tunnel",
+    "remote-access"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "lib/index.js",
+  "bin": {
+    "dsh-tunnel": "bin/dsh-tunnel.mjs"
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "server",
+    "dsh-tunnel.cmd",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "serve": "node server/control.mjs"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# 运行时产物
+node_modules/
+*.log
+
+# 控制服务落盘的状态、密钥、pid
+logs/
+*.pid
+tunnel-state.json
+tunnel-gate.key
+
+# 本地测试用
+_test-state/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
