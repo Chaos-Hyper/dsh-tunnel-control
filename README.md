@@ -126,11 +126,71 @@ dsh-tunnel cloudflared   # 打印 cloudflared 的下载方式
 
 状态文件（`tunnel-state.json`）里存着当前密码和上次的链接，密钥单独放在 `tunnel-gate.key`。两个都在你自己的 home 目录里，不要把 `~/.dsh/logs` 分享出去。
 
+想让配置长期生效，用 `setx` 写进用户环境变量（新开的进程才读得到，已运行的 dsh 不会变）：
+
+```powershell
+setx DSH_TUNNEL_UPSTREAM "http://127.0.0.1:19387"
+setx DSH_TUNNEL_PASSWORD "换成一个你记得住的密码"
+```
+
+## 开机自启（可选）
+
+控制服务不会自己常驻，重启后要手敲一次 `dsh-tunnel start`。想让它随登录自动起来，用任务计划程序，别往启动文件夹丢 `.bat`——脚本类启动项要过「启动应用」开关、审批记录、安全软件三道闸，最容易被静默吞掉。
+
+**1. 写包装脚本** `~/.dsh/tools/dsh-tunnel-autostart.vbs`：
+
+```vbs
+' Keep this file PURE ASCII. VBScript is read with the system ANSI codepage, so
+' UTF-8 CJK bytes in comments break parsing (Object required: 'sh'), and a
+' literal CJK path would be mangled. Paths come from the environment instead.
+Set sh = CreateObject("WScript.Shell")
+profile = sh.ExpandEnvironmentStrings("%USERPROFILE%")
+exe = "C:\Program Files\nodejs\node.exe"
+script = profile & "\.dsh\profiles\node_modules\@local\dsh-tunnel-control\server\control.mjs"
+sh.Run """" & exe & """ """ & script & """", 0, False
+```
+
+`0` 是隐藏窗口，`False` 是不等待——`node` 是控制台程序，这样拉起来才不会留一个黑框，也不会因为关窗被连带杀掉。
+
+**2. 注册任务**（不需要管理员权限）：
+
+```powershell
+$vbs = "$env:USERPROFILE\.dsh\tools\dsh-tunnel-autostart.vbs"
+$user = "$env:USERDOMAIN\$env:USERNAME"
+$action  = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$vbs`""
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+              -DontStopOnIdleEnd -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) `
+              -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName 'DshTunnelControl' -Action $action -Trigger $trigger `
+  -Principal $principal -Settings $settings -Force
+```
+
+**3. 验证**，别等下次重启：
+
+```powershell
+Start-ScheduledTask -TaskName 'DshTunnelControl'
+Start-Sleep 8
+Get-ScheduledTaskInfo -TaskName 'DshTunnelControl' | Select-Object LastRunTime,LastTaskResult
+Invoke-RestMethod http://127.0.0.1:3082/api/state
+```
+
+`LastTaskResult` 为 `0` 且 `/api/state` 有响应就算通了；`267011` 表示从未运行过。
+
+拿掉自启：`Unregister-ScheduledTask -TaskName 'DshTunnelControl' -Confirm:$false`。
+
+三条硬要求（少一条都会静默失效）：
+
+- **vbs 必须纯 ASCII**。VBScript 按系统 ANSI 代码页读文件，UTF-8 的中文注释会让它解析崩掉（报 `Object required: 'sh'`，而且报在注释后面那一行，极易误判）；写死的中文路径同样会乱码，所以路径一律用 `ExpandEnvironmentStrings` 展开。
+- **`-DontStopOnIdleEnd` 必须显式加**。`New-ScheduledTaskSettingsSet` 不关它，任务会在系统进入空闲时被停，长驻服务就这么莫名消失。注意这个属性在 CIM 对象上没有对应字段，要核对得 `Export-ScheduledTask` 看 XML 里的 `<StopOnIdleEnd>false</StopOnIdleEnd>`。
+- **`ExecutionTimeLimit` 设 `PT0S`**。默认 72 小时上限，到点直接砍。
+
 ## 安全模型
 
 说清楚它保护了什么、没保护什么：
 
-- **保护**：任何请求先过密码门，密码错 8 次锁 1 分钟；会话 cookie 用 HMAC 签名，改一个字节就失效；控制 API 只监听 `127.0.0.1`，`POST` 还必须带 `x-control: 1` 自定义头（跨站表单打不进来），`Origin` 白名单只放回环地址和 `*.trycloudflare.com`
+- **保护**：任何请求先过密码门，密码错 8 次锁 1 分钟；会话 cookie 用 HMAC 签名，改一个字节就失效；控制 API 只监听 `127.0.0.1`，`POST` 还必须带 `x-control: 1` 自定义头（跨站表单打不进来），`Origin` 白名单只放回环地址、`*.trycloudflare.com` 和桌面宿主的 `dsh-app://`
 - **保护**：密码门的 cookie 不会转发给 dsh，dsh 拿到的是另一枚代签 cookie
 - **没保护**：过门之后就是完整的 dsh web。所有会话、工作区、文件浏览权限和你本机一样。**别把密码发给不该给的人**
 - **没保护**：`trycloudflare` 是 Cloudflare 的免费快速隧道，域名随机、无 SLA、随时可能断
@@ -145,6 +205,7 @@ dsh-tunnel cloudflared   # 打印 cloudflared 的下载方式
 | 卡片一直显示「读取状态…」 | 控制服务没起。`dsh-tunnel status` 看一眼，没跑就 `dsh-tunnel start` |
 | 卡片提示「本机隧道服务未启动」 | 同上；或者控制服务换了端口，在页面注入 `window.__DSH_TUNNEL_API = "http://127.0.0.1:<端口>"` |
 | 点开启后提示「找不到 cloudflared」 | 回到安装第 1 步，放到 `~/.dsh/tools/` 或写 `DSH_TUNNEL_CLOUDFLARED` |
+| 桌面端两个按钮都是灰的，还提示「当前是外部链接访问」 | 卡片误判了「是否本机」。桌面宿主的页面 origin 是 `dsh-app://app`（宿主用 `registerSchemesAsPrivileged` 注册的自有 scheme），`location.hostname` 是 `app` 而不是 `127.0.0.1`。v0.2.0 起按 `dshDesktop` 桥判定，升级后重启 dsh 即可；同时服务端 CORS 白名单也要放行 `dsh-app://` |
 | 公网打开一直 401 登录页 | 密码错了；或者连续错太多次被锁，等 1 分钟 |
 | 密码过了但界面是 dsh 的 401 | 没读到 `.credentials.yaml` 的签名密钥，看 `tunnel.log` 里有没有「未读到 dsh cookie 签名密钥」。dsh 版本不同则字段位置可能变 |
 | 公网能开首页，但对话不刷新 | WebSocket 被掐了。查 `tunnel.log`、确认走的是同一个密码门端口 |
